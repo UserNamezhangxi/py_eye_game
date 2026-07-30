@@ -25,6 +25,9 @@ class Game:
         self.clock = pygame.time.Clock()
         self.running = True
 
+        # 新增玩家朝向标记，默认初始面朝左
+        self.player_facing_right = False
+
         # --- 玩家属性 ---
         self.player_size = 60
         self.player_x = SCREEN_WIDTH // 2
@@ -79,15 +82,23 @@ class Game:
 
     def handle_input(self):
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]: self.player_x -= self.player_speed
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]: self.player_x += self.player_speed
-        if keys[pygame.K_UP] or keys[pygame.K_w]: self.player_y -= self.player_speed
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]: self.player_y += self.player_speed
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            self.player_x -= self.player_speed
+            self.player_facing_right = False
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            self.player_x += self.player_speed
+            self.player_facing_right = True
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            self.player_y -= self.player_speed
+        # 修正下方向逻辑：Y坐标增大才是往屏幕下方移动
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            self.player_y += self.player_speed
+        # 保留边界限制，避免鱼移出屏幕外
         self.player_x = max(self.player_size, min(SCREEN_WIDTH - self.player_size, self.player_x))
         self.player_y = max(self.player_size, min(SCREEN_HEIGHT - self.player_size, self.player_y))
 
     def spawn_enemy(self):
-        size = random.randint(15, 25)
+        size = random.randint(25, 30)
         speed = random.uniform(1, 2)
         enemy_type_name = random.choice(['crab', 'shrimp', 'shell'])
         side = random.choice([1, 2, 3])  # 右, 下, 左
@@ -158,9 +169,16 @@ class Game:
 
     def draw_player(self):
         self.fish_anim_timer += 1
+        current_anim_img = self.base_player_img
         if self.fish_anim_timer % 30 == 0:
             rotate_angle = 5 if (self.fish_anim_timer // 30) % 2 == 0 else -5
-            self.player_img = pygame.transform.rotate(self.base_player_img, rotate_angle)
+            current_anim_img = pygame.transform.rotate(self.base_player_img, rotate_angle)
+
+        # 核心镜像逻辑：面朝右时水平翻转图片
+        if self.player_facing_right:
+            current_anim_img = pygame.transform.flip(current_anim_img, True, False)
+
+        self.player_img = current_anim_img
         img_rect = self.player_img.get_rect(center=(int(self.player_x), int(self.player_y)))
         self.screen.blit(self.player_img, img_rect)
 
