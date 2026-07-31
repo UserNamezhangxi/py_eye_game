@@ -29,7 +29,7 @@ class Game:
         self.player_facing_right = False
 
         # --- 玩家属性 ---
-        self.player_size = 60
+        self.player_size = 80
         self.player_x = SCREEN_WIDTH // 2
         self.player_y = SCREEN_HEIGHT // 2
         self.player_speed = 4
@@ -53,9 +53,21 @@ class Game:
         # --- 字体 ---
         self.font = pygame.font.SysFont('arial', 24)
 
+        # --- 新增：吃掉海鲜的音效加载 ---
+        try:
+            self.eat_sound = pygame.mixer.Sound("eat.MP3")  # 替换成你自己的音效文件名
+            self.eat_sound.set_volume(0.7)  # 调整音量到合适大小，避免太吵
+
+            self.bg_music = pygame.mixer.Sound("bg_music.MP3")  # 替换成你自己的音效文件名
+            self.bg_music.set_volume(0.7)  # 调整音量到合适大小，避免太吵
+
+        except FileNotFoundError:
+            print("提示：未找到音效文件，将跳过音效播放")
+            self.eat_sound = None
+
     def generate_cartoon_fish(self):
         fish_surf = pygame.image.load("c.jpeg").convert_alpha()
-        fish_surf = pygame.transform.scale(fish_surf, (60, 60))
+        fish_surf = pygame.transform.scale(fish_surf, (self.player_size, self.player_size))
         return fish_surf
 
     def generate_custom_seafood(self):
@@ -139,7 +151,11 @@ class Game:
         for enemy in self.enemies[:]:
             dist = math.hypot(self.player_x - enemy['x'], self.player_y - enemy['y'])
             if dist < self.player_size + enemy['size']:
-                if enemy in self.enemies: self.enemies.remove(enemy)
+                if enemy in self.enemies:
+                    self.enemies.remove(enemy)
+                    # 碰撞触发，播放吃掉音效
+                    if self.eat_sound is not None:
+                        self.eat_sound.play()
 
     def update_background_state(self):
         current_time = pygame.time.get_ticks()
@@ -214,6 +230,7 @@ class Game:
         self.screen.blit(text, (15, 15))
 
     def run(self):
+        self.bg_music.play(loops=-1)
         while self.running:
             self.handle_events()
             self.handle_input()
