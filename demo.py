@@ -50,8 +50,25 @@ class Game:
         self.grating_offset = 0
         self.current_phase = 'grating'
 
-        # --- 字体 ---
-        self.font = pygame.font.SysFont('arial', 24)
+        self.tile_size = 40  # 每个小方块的像素大小，可根据需要调整
+        self.bg_pattern = self.create_checkerboard_bg()
+        self.bg_offset_x = 0  # 水平方向偏移量
+        self.bg_offset_y = 0  # 垂直方向偏移量
+        self.bg_speed_x = 2  # 水平滚动速度，正数向左滚，负数向右滚
+        self.bg_speed_y = 2  # 垂直滚动速度，正数向上滚，负数向下滚
+
+        # --- 新增：游戏流程控制状态 ---
+        self.game_state = 'input'  # 初始状态为输入时间
+        self.input_buffer = ""  # 存储用户输入的分钟数字符串
+        self.target_duration_sec = 0  # 目标游戏时长（秒）
+        self.start_game_time = 0  # 游戏正式开始的毫秒时间戳
+
+        try:
+            self.font_cn = pygame.font.Font("C:/Windows/Fonts/simhei.ttf", 40)
+            self.font_small = pygame.font.Font("C:/Windows/Fonts/simhei.ttf", 24)
+        except:
+            self.font_cn = pygame.font.SysFont('arial', 40)
+            self.font_small = pygame.font.SysFont('arial', 24)
 
         # --- 新增：吃掉海鲜的音效加载 ---
         try:
@@ -64,6 +81,82 @@ class Game:
         except FileNotFoundError:
             print("提示：未找到音效文件，将跳过音效播放")
             self.eat_sound = None
+
+    def handle_input_phase(self, event):
+        """处理输入阶段的事件"""
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                # 确认输入
+                if self.input_buffer.isdigit() and int(self.input_buffer) > 0:
+                    self.target_duration_sec = int(self.input_buffer) * 60
+                    self.game_state = 'playing'
+                    self.start_game_time = pygame.time.get_ticks()
+                    print(f"游戏开始！时长设定为: {self.input_buffer} 分钟")
+                    self.bg_music.play(-1)  # 播放背景音乐，循环播放
+                else:
+                    self.input_buffer = ""  # 输入无效清空
+            elif event.key == pygame.K_BACKSPACE:
+                self.input_buffer = self.input_buffer[:-1]
+            elif event.unicode.isdigit():
+                # 限制最多输入2位数字，避免过大
+                if len(self.input_buffer) < 2:
+                    self.input_buffer += event.unicode
+
+    def create_checkerboard_bg(self):
+        """生成一个全屏的黑白棋盘格背景 Surface"""
+        bg_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+
+        # 遍历屏幕上的每一个格子位置
+        for y in range(0, SCREEN_HEIGHT, self.tile_size):
+            for x in range(0, SCREEN_WIDTH, self.tile_size):
+                # 判断当前格子应该是黑色还是白色
+                # 逻辑：如果行号+列号是偶数则白色，奇数则黑色（或者反过来）
+                row_index = y // self.tile_size
+                col_index = x // self.tile_size
+
+                if (row_index + col_index) % 2 == 0:
+                    color = WHITE
+                else:
+                    color = BLACK
+
+                # 绘制矩形填充颜色
+                pygame.draw.rect(bg_surface, color, (x, y, self.tile_size, self.tile_size))
+
+        return bg_surface
+
+    def draw_background(self):
+        """绘制可滚动的棋盘格背景"""
+        # 更新偏移量
+        self.bg_offset_x -= self.bg_speed_x
+        self.bg_offset_y -= self.bg_speed_y
+
+        # 获取背景图的宽高
+        bg_w, bg_h = self.bg_pattern.get_width(), self.bg_pattern.get_height()
+
+        # 使用取余运算确保偏移量在合理范围内，实现无缝循环
+        # 注意：这里假设 bg_pattern 足够大或者我们采用双图拼接法
+        # 更简单的无缝滚动方法是：绘制两张图，一张在当前偏移位置，一张在互补位置
+
+        current_x = self.bg_offset_x % bg_w
+        current_y = self.bg_offset_y % bg_h
+
+        # 为了覆盖整个屏幕并实现无缝，通常需要绘制 4 份背景图（左上、右上、左下、右下）
+        # 或者至少 2 份（如果只向一个方向滚）。这里提供全方向无缝滚动的通用写法：
+
+        # 绘制第一张（主图）
+        self.screen.blit(self.bg_pattern, (current_x - bg_w, current_y - bg_h))
+        self.screen.blit(self.bg_pattern, (current_x, current_y - bg_h))
+        self.screen.blit(self.bg_pattern, (current_x - bg_w, current_y))
+        self.screen.blit(self.bg_pattern, (current_x, current_y))
+
+    def get_formatted_time(self, elapsed_sec):
+        """获取当前游戏运行时间，格式为 MM:SS"""
+        # get_ticks() 返回自 pygame.init() 以来的毫秒数
+        total_seconds = elapsed_sec
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        # 格式化为两位数字，例如 01:05
+        return f"时间: {minutes:02d}:{seconds:02d}"
 
     def generate_cartoon_fish(self):
         fish_surf = pygame.image.load("c.jpeg").convert_alpha()
@@ -91,6 +184,17 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+
+            # 根据当前状态分发事件
+            if self.game_state == 'input':
+                self.handle_input_phase(event)
+            elif self.game_state == 'ended':
+                # 结束后按 R 键重启，或 Q 键退出
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_r:
+                        self.__init__()  # 重置游戏
+                    elif event.key == pygame.K_q:
+                        self.running = False
 
     def handle_input(self):
         keys = pygame.key.get_pressed()
@@ -160,10 +264,12 @@ class Game:
     def update_background_state(self):
         current_time = pygame.time.get_ticks()
         elapsed = current_time - self.start_time
-        time_in_cycle = elapsed % 60000
+        time_in_cycle = elapsed % 90000
         if time_in_cycle < 30000:
             self.current_phase = 'grating'
             self.bg_color = WHITE
+        elif time_in_cycle < 60000:
+            self.current_phase = 'black_white'
         else:
             flash_time = time_in_cycle - 30000
             if (flash_time // 1000) % 2 == 0:
@@ -173,6 +279,13 @@ class Game:
                 self.current_phase = 'blue'
                 self.bg_color = BLUE
         self.grating_offset += 2
+
+        if self.current_phase == 'grating':
+            self.draw_grating()
+        elif self.current_phase == 'black_white':
+            self.draw_background()
+        else:
+            self.screen.fill(self.bg_color)
 
     def draw_grating(self):
         if self.current_phase != 'grating':
@@ -221,33 +334,90 @@ class Game:
                 rect = scaled_img.get_rect(center=(int(enemy['x']), int(enemy['y'])))
                 self.screen.blit(scaled_img, rect)
 
-    def draw_ui(self):
+    def draw_time(self, elapsed_sec):
         text_color = BLACK if self.current_phase == 'grating' else WHITE
         bg_box_color = WHITE if self.current_phase == 'grating' else BLACK
-        text = self.font.render("Arrows to Move | Eat Seafood", True, text_color)
+        time_text = self.get_formatted_time(elapsed_sec)
+        text = self.font_cn.render(time_text, True, text_color)
         text_rect = text.get_rect(topleft=(10, 10))
         pygame.draw.rect(self.screen, bg_box_color, text_rect.inflate(10, 10))
         self.screen.blit(text, (15, 15))
 
+    def draw_input_screen(self):
+        """绘制输入界面"""
+        title_surf = self.font_cn.render("请输入训练时长(分钟):", True, BLACK)
+        title_rect = title_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        self.screen.blit(title_surf, title_rect)
+
+        # 显示当前输入的数字
+        input_surf = self.font_cn.render(self.input_buffer + "_", True, BLUE)  # 加个下划线模拟光标
+        input_rect = input_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
+        self.screen.blit(input_surf, input_rect)
+
+        hint_surf = self.font_small.render("输入数字后按 Enter 确认", True, (100, 100, 100))
+        hint_rect = hint_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
+        self.screen.blit(hint_surf, hint_rect)
+
+    def draw_end_screen(self):
+        """绘制结束提示界面"""
+        # 半透明遮罩
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(128)
+        overlay.fill(BLACK)
+        self.screen.blit(overlay, (0, 0))
+
+        msg1 = self.font_cn.render("时间到！", True, WHITE)
+        msg2 = self.font_cn.render("请休息后再次游戏吧", True, WHITE)
+        msg3 = self.font_small.render("按 R 重新开始 | 按 Q 退出", True, (200, 200, 200))
+
+        rect1 = msg1.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 60))
+        rect2 = msg2.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+        rect3 = msg3.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60))
+
+        self.screen.blit(msg1, rect1)
+        self.screen.blit(msg2, rect2)
+        self.screen.blit(msg3, rect3)
+
+        self.bg_music.stop()
+
+    def check_tim_over(self):
+        current_time = pygame.time.get_ticks()
+        elapsed_sec = (current_time - self.start_game_time) // 1000
+
+        if elapsed_sec >= self.target_duration_sec:
+            self.game_state = 'ended'
+        return elapsed_sec
+
     def run(self):
-        self.bg_music.play(loops=-1)
         while self.running:
+            # --- 事件处理 ---
             self.handle_events()
-            self.handle_input()
-            self.update_enemies()
-            self.check_collisions()
-            self.update_background_state()
-            if self.current_phase == 'grating':
-                self.draw_grating()
-            else:
-                self.screen.fill(self.bg_color)
-            self.draw_enemies()
-            self.draw_player()
-            self.draw_ui()
+
+            # --- 绘制阶段 ---
+            self.screen.fill(WHITE)  # 先清屏
+
+            if self.game_state == 'input':
+                self.draw_input_screen()
+            elif self.game_state == 'playing':
+                self.draw_playing()
+            elif self.game_state == 'ended':
+                self.draw_end_screen()
+
             pygame.display.flip()
             self.clock.tick(FPS)
+
         pygame.quit()
         sys.exit()
+
+    def draw_playing(self):
+        self.handle_input()
+        self.update_enemies()
+        self.check_collisions()
+        self.update_background_state()
+        self.draw_enemies()
+        self.draw_player()
+        elapsed_sec = self.check_tim_over()
+        self.draw_time(elapsed_sec)
 
 
 if __name__ == "__main__":
